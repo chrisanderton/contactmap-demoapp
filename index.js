@@ -3,6 +3,7 @@ var async = require('async');
 var HashMap = require('hashmap');
 var geocode = require('./geocode');
 var rgeocode = require('./rgeocode');
+var _ = require('lodash');
 
 // ************** DATABASE MODELS ***********************
 
@@ -81,14 +82,11 @@ function geocode_contact(contact, callback) {
 }
 
 
-var country_locations = [];
-
 function geocode_country(country, callback) {
 	if (country) {
-
 		geocode(country, function(geocode) {
 			if (geocode) {
-				callback(null, {country: escape(country), lat: geocode.lat, lon:geocode.lon});
+				callback(null, {country: escape(country), lat: geocode.lat, lon: geocode.lon, count: 0});
 			} else {
 				callback();
 			}
@@ -108,7 +106,7 @@ function geocode_account(account, callback) {
 
 		geocode(addr, function(geocode) {
 			if (geocode) {
-				callback(null, {name: escape(account.billingcountry), lat: geocode.lat, lon:geocode.lon});
+				callback(null, {name: escape(account.billingcountry), lat: geocode.lat, lon: geocode.lon});
 			} else {
 				callback();
 			}
@@ -148,12 +146,8 @@ function load_contacts(callback) {
 }
 
 function load_countries(callback) {
-	async.map(["DE","NL","GB", "PL"], geocode_country, callback);
-
+	async.map(["DE","NL","GB", "PL", "FR"], geocode_country, callback);
 }
-
-
-
 
 
 // EXPRESS
@@ -218,82 +212,28 @@ app.get('/updatecountry', function(req, res) {
 
 
 app.get('/accounts', function(req, res) {
+	load_countries(function(error, countryGeocodes) {
+        
+        var countryData = _.indexBy(countryGeocodes, 'country');
 
-
-	load_countries(function(error, country_locations) {
-
-		console.log('************** COUNTRY LOCATIONS **************** : ' + JSON.stringify(country_locations));
-
-
-
-		var countryArray = ["DE","NL","GB", "PL"]; //"DE","NL","GB", "PL"
-		var countArray = [];
-		var countryAccountHash = new HashMap();
-		var callbackCounter = 0;
-
-		for(var i = 0; i < countryArray.length; i++){
-
-
-
-				async.series([
-
-						function(callback){
-				        // do some stuff ...
-				        callback(null, countryArray[i]);
-				    },
-				    function(callback){
-				        // do some more stuff ...
-								Account.count({ where: {billingcountry: countryArray[i]}})
-								.error(function(err) {
-							    // error callback
-								})
-							  .success(function(c) {
-							    // success callback
-
-									console.log("COUNT QUERY: " + c);
-									callbackCounter++
-									callback(null, c);
-							  });
-
-				    }
-				],
-				// optional callback
-				function(err, results){
-
-					countryAccountHash.set(results[0], results);
-
-						if (callbackCounter == countryArray.length) {
-							console.log("accountloc_geomap " + JSON.stringify(countryAccountHash));
-							console.log('************** COUNTRY LOCATIONS **************** : ' + JSON.stringify(country_locations));
-
-							var tmpHashCL = new HashMap();
-
-							for(i = 0; i < country_locations.length; i++){
-
-								var cTmp = {};
-								cTmp.country = country_locations[i].country;
-								cTmp.lat = country_locations[i].lat;
-								cTmp.lon = country_locations[i].lon;
-								cTmp.count = countryAccountHash.get(country_locations[i].country)[1];
-
-								tmpHashCL.set(country_locations[i].country, cTmp);
-
-							};
-
-							console.log("tmpHashCL " + JSON.stringify(tmpHashCL));
-
-							res.render('accounts', {accountloc_geomap: tmpHashCL});
-
-						}
-
-					})
-			};
-
-
+        // this is used for interpolation as i couldn't see how to get sequelize to inject an array nicely
+        var countries = _.keys(countryData).map(function(country) { return "'" + country + "'"}).join(",");
+        
+        var query = 'SELECT UPPER(billingcountry) as country, count(*) as count FROM salesforce.account WHERE billingcountry IN (' + countries + ') GROUP BY upper(billingcountry)';
+        
+        db.query(
+            query,
+            { 
+                type: db.QueryTypes.SELECT, 
+                raw: true, 
+                logging: console.log
+            }
+        ).then(function(countryCounts) {
+            _.each(countryCounts, function(countryCount) { countryData[countryCount["country"]]["count"] = parseInt(countryCount["count"], 10) });
+        }).then(function() {
+           res.render('accounts', {accountloc_geomap: countryData}); 
+        });
 	});
-
-
-
 });
 
 

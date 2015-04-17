@@ -70,11 +70,9 @@
 
         }
 
-      <% accountloc_geomap.keys().forEach(function(location) { %>
-
-        	    addMarker(JSON.parse('<%- JSON.stringify(accountloc_geomap.get(location)) %>'));
-
-        <% }); %>
+        <% for (var location in accountloc_geomap) { %>              
+          addMarker(JSON.parse('<%- JSON.stringify(accountloc_geomap[location]) %>'));
+        <% }; %>
 
        setTimeout(function() {
           map.setCenter({lat: 54.9000, lng: 25.3167});
